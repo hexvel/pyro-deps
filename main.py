@@ -2,6 +2,9 @@ import asyncio
 import html
 import re
 
+import pyrogram
+from pyrogram.enums import MessageEntityType
+
 import utils
 
 BOLD_DELIM = "**"
@@ -125,19 +128,68 @@ class Markdown:
             text = utils.replace_once(text, delim, tag, start)
         return text
 
+    @staticmethod
+    def unparse(text: str, entities: list):
+        text = utils.add_surrogates(text)
 
-text = """>test
-отступ
->test1 ksdmfkdfmkndfk
->test2 ndfkdjnjkfd
-teeeest"""
+        entities_offsets = []
 
+        for entity in entities:
+            entity_type = entity.type
+            start = entity.offset
+            end = start + entity.length
 
-async def main():
-    md = Markdown()
-    result = await md.parse(text)
-    print(result)
+            if entity_type == MessageEntityType.BOLD:
+                start_tag = end_tag = BOLD_DELIM
+            elif entity_type == MessageEntityType.ITALIC:
+                start_tag = end_tag = ITALIC_DELIM
+            elif entity_type == MessageEntityType.UNDERLINE:
+                start_tag = end_tag = UNDERLINE_DELIM
+            elif entity_type == MessageEntityType.STRIKETHROUGH:
+                start_tag = end_tag = STRIKE_DELIM
+            elif entity_type == MessageEntityType.CODE:
+                start_tag = end_tag = CODE_DELIM
+            elif entity_type == MessageEntityType.PRE:
+                language = getattr(entity, "language", "") or ""
+                start_tag = f"{PRE_DELIM}{language}\n"
+                end_tag = f"\n{PRE_DELIM}"
+            elif entity_type == MessageEntityType.BLOCKQUOTE:
+                start_tag = f"{QUOTE_DELIM} "
+                end_tag = "\n"
+            elif entity_type == MessageEntityType.SPOILER:
+                start_tag = end_tag = SPOILER_DELIM
+            elif entity_type == MessageEntityType.TEXT_LINK:
+                url = entity.url
+                start_tag = "["
+                end_tag = f"]({url})"
+            elif entity_type == MessageEntityType.TEXT_MENTION:
+                user = entity.user
+                start_tag = "["
+                end_tag = f"](tg://user?id={user.id})"
+            else:
+                continue
 
+            entities_offsets.append(
+                (
+                    start_tag,
+                    start,
+                )
+            )
+            entities_offsets.append(
+                (
+                    end_tag,
+                    end,
+                )
+            )
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        entities_offsets = map(
+            lambda x: x[1],
+            sorted(
+                enumerate(entities_offsets), key=lambda x: (x[1][1], x[0]), reverse=True
+            ),
+        )
+
+        for entity, offset in entities_offsets:
+            text = text[:offset] + entity + text[offset:]
+
+        return utils.remove_surrogates(text)
